@@ -32,8 +32,16 @@ contract Plugin is BasePluginWithEventMetadata {
     }
 
     bool private isPool; // true is pool false is child
+    mapping(Network network => bool locked) locked;
 
     mapping(address msgSender => mapping(Network network => mapping(address to => bool isAllowed)))
         private _allowed;
     mapping(Network network => address poolAddress) private poolAddress; // pool address
+
+    function getAaveUserHealth(
+        address userAddress
+    ) public view returns (uint256) {
+        return
+            Ipool(poolAddress[0]).getUserAccountData(userAddress).healthFactor;
+    }
 }
