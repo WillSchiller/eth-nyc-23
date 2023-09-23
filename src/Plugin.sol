@@ -9,8 +9,7 @@ import {Ipool} from "@aave/interfaces/IPool.sol";
 
 contract Plugin is BasePluginWithEventMetadata {
     constructor(
-        address poolAddress,
-        string network
+        address poolAddress
     )
         BasePluginWithEventMetadata(
             PluginMetadata({
@@ -22,26 +21,26 @@ contract Plugin is BasePluginWithEventMetadata {
             })
         )
     {
-        poolAddress[0] = poolAddress;
-        poolAddress[1] = poolAddress;
+        pool = poolAddress;
     }
 
     enum Network {
-        polygonMumbai,
-        AvalancheFuji
+        ARBITRUM_GOERLI,
+        AVALANCHE_FUJI,
+        BASE_GOERLI,
+        POLYGON_MUMBAI
     }
 
     bool private isPool; // true is pool false is child
     mapping(Network network => bool locked) locked;
-
-    mapping(address msgSender => mapping(Network network => mapping(address to => bool isAllowed)))
-        private _allowed;
-    mapping(Network network => address poolAddress) private poolAddress; // pool address
+    mapping(address msgSender => mapping(Network network => mapping(address to => bool isWhitelisted)))
+        private whitelistedRecipient; //should be gas optimised
+    address private pool; // pool address
 
     function getAaveUserHealth(
-        address userAddress
+        address userAddress,
+        Network network
     ) public view returns (uint256) {
-        return
-            Ipool(poolAddress[0]).getUserAccountData(userAddress).healthFactor;
+        return Ipool(pool).getUserAccountData(userAddress).healthFactor;
     }
 }
