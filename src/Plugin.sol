@@ -5,20 +5,12 @@ import {BasePluginWithEventMetadata, PluginMetadata} from "./Base.sol";
 import {ISafe} from "@safe/interfaces/Accounts.sol";
 import {ISafeProtocolManager} from "@safe/interfaces/Manager.sol";
 import {SafeTransaction, SafeProtocolAction} from "@safe/DataTypes.sol";
-import {Ipool} from "@aave/interfaces/IPool.sol";
+import {IPool} from "@aave/interfaces/IPool.sol";
 
 contract Plugin is BasePluginWithEventMetadata {
-    constructor(
-        address poolAddress
-    )
+    constructor(address poolAddress)
         BasePluginWithEventMetadata(
-            PluginMetadata({
-                name: "Fillable.xyz",
-                version: "1.0.0",
-                requiresRootAccess: false,
-                iconUrl: "",
-                appUrl: ""
-            })
+            PluginMetadata({name: "Fillable.xyz", version: "1.0.0", requiresRootAccess: false, iconUrl: "", appUrl: ""})
         )
     {
         pool = poolAddress;
@@ -31,16 +23,39 @@ contract Plugin is BasePluginWithEventMetadata {
         POLYGON_MUMBAI
     }
 
+    error ThreadLocked();
+    error RecipientNotWhitelisted();
+    error AaveHealthFactorTooHigh();
+
     bool private isPool; // true is pool false is child
-    mapping(Network network => bool locked) locked;
-    mapping(address msgSender => mapping(Network network => mapping(address to => bool isWhitelisted)))
-        private whitelistedRecipient; //should be gas optimised
+    mapping(Network network => mapping(address to => mapping(address from => bool locked))) threadLocked; // Prevent duplication
+    mapping(address from => mapping(Network network => mapping(address to => bool isWhitelisted))) private
+        whitelistedRecipient; //should be gas optimised
     address private pool; // pool address
 
-    function getAaveUserHealth(
-        address userAddress,
-        Network network
-    ) public view returns (uint256) {
-        return Ipool(pool).getUserAccountData(userAddress).healthFactor;
+    modifier guard(address _to, address _from, Network network) {
+        if (threadLocked[network][_to][_from]) revert ThreadLocked();
+        if (!whitelistedRecipient[_from][network][_to]) {
+            revert RecipientNotWhitelisted();
+        }
+        if (getAaveUserHealth(_to) > 1100000000000000000) {
+            revert AaveHealthFactorTooHigh();
+        }
+        _;
+    }
+
+    function getAaveUserHealth(address userAddress) public view returns (uint256) {
+        (,,,,, uint256 heathFactor) = IPool(pool).getUserAccountData(userAddress);
+        return heathFactor;
+    }
+
+    function sendFunds(address _to, address _from, Network network) internal guard(_to, _from, network) {
+        // plugin in a load of checks here
+        //then request data
+        //lock the channel
+    }
+
+    function receiveFunds() internal {
+        // on return of msg post to aave
     }
 }

@@ -87,7 +87,7 @@ contract PluginTest is Test {
     function setUp() public {
         vm.startPrank(owner);
         vm.selectFork(vm.createFork(vm.envString("GOERLI_RPC_URL")));
-        plugin = new Plugin();
+        plugin = new Plugin(0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951);
         registry = new SafeProtocolRegistry(owner);
         manager = new SafeProtocolManager(owner, address(registry));
         singleton = new Safe();
