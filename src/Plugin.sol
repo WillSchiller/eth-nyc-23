@@ -50,7 +50,6 @@ contract Plugin is BasePluginWithEventMetadata {
     }
 
     function sendFunds(address _to, address _from, Network network) internal guard(_to, _from, network) {
-        // plugin in a load of checks here
         //then request data
         //lock the channel
     }
