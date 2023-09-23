@@ -6,6 +6,7 @@ import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/
 import {OwnerIsCreator} from "@chainlink/contracts-ccip/src/v0.8/shared/access/OwnerIsCreator.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 import {LinkTokenInterface} from "@chainlink/contracts-ccip/src/v0.8/shared/interfaces/LinkTokenInterface.sol";
+import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 //SAFE
 import {BasePluginWithEventMetadata, PluginMetadata} from "./Base.sol";
 import {ISafe} from "@safe/interfaces/Accounts.sol";
@@ -13,7 +14,7 @@ import {ISafeProtocolManager} from "@safe/interfaces/Manager.sol";
 import {SafeTransaction, SafeProtocolAction} from "@safe/DataTypes.sol";
 import {IPool} from "@aave/interfaces/IPool.sol";
 
-contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator {
+contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     enum Network {
         ARBITRUM_GOERLI,
         AVALANCHE_FUJI,
@@ -29,7 +30,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator {
 
     //CCIP
     address private receiver;
-    IRouterClient private router;
+    IRouterClient[4] private router; // See network Enum for index
     LinkTokenInterface private linkToken;
 
     // The chain selector of the destination chain.
@@ -62,7 +63,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator {
         _;
     }
 
-    constructor(address _pool, address _router, address _link)
+    constructor(address _pool, address _router, address _link,  IRouterClient[4] memory _routers)
         BasePluginWithEventMetadata(
             PluginMetadata({
                 name: "Fillable.xyz",
@@ -72,9 +73,11 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator {
                 appUrl: ""
             })
         )
+    CCIPReceiver(_router)
+
     {
         pool = _pool;
-        router = IRouterClient(_router);
+        router = _routers;
         linkToken = LinkTokenInterface(_link);
     }
 
@@ -102,16 +105,16 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator {
             feeToken: address(linkToken)
         });
 
-        uint256 fees = router.getFee(destinationChainSelector, evm2AnyMessage);
+        uint256 fees = router[uint256(network)].getFee(destinationChainSelector, evm2AnyMessage);
 
         if (fees > linkToken.balanceOf(address(this)))
             revert NotEnoughBalance(linkToken.balanceOf(address(this)), fees);
 
         // approve the Router to transfer LINK tokens on contract's behalf. It will spend the fees in LINK
-        linkToken.approve(address(router), fees);
+        linkToken.approve(address(router[uint256(network)]), fees);
 
         // Send the message through the router and store the returned message ID
-        messageId = router.ccipSend(destinationChainSelector, evm2AnyMessage);
+        messageId = router[uint256(network)].ccipSend(destinationChainSelector, evm2AnyMessage);
 
         // Emit an event with message details
         emit MessageSent(
