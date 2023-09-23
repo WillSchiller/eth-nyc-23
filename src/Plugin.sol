@@ -5,24 +5,35 @@ import {BasePluginWithEventMetadata, PluginMetadata} from "./Base.sol";
 import {ISafe} from "@safe/interfaces/Accounts.sol";
 import {ISafeProtocolManager} from "@safe/interfaces/Manager.sol";
 import {SafeTransaction, SafeProtocolAction} from "@safe/DataTypes.sol";
+import {Ipool} from "@aave/interfaces/IPool.sol";
 
 contract Plugin is BasePluginWithEventMetadata {
-
-        constructor()
+    constructor(
+        address poolAddress,
+        string network
+    )
         BasePluginWithEventMetadata(
             PluginMetadata({
-                name: "PluginName",
+                name: "Fillable.xyz",
                 version: "1.0.0",
                 requiresRootAccess: false,
                 iconUrl: "",
                 appUrl: ""
             })
-        ){}
+        )
+    {
+        poolAddress[0] = poolAddress;
+        poolAddress[1] = poolAddress;
+    }
 
-/**
- * @dev This contract is a plugin that can be used to interact with s Safe via the manager. 
- * You should write your plugin functions below. See this example for more help:
- * https://github.com/5afe/safe-core-protocol-demo/blob/main/contracts/contracts/Plugins.sol
- */
-    
+    enum Network {
+        polygonMumbai,
+        AvalancheFuji
+    }
+
+    bool private isPool; // true is pool false is child
+
+    mapping(address msgSender => mapping(Network network => mapping(address to => bool isAllowed)))
+        private _allowed;
+    mapping(Network network => address poolAddress) private poolAddress; // pool address
 }
