@@ -14,7 +14,6 @@ import {SafeTransaction, SafeProtocolAction} from "@safe/DataTypes.sol";
 import {IPool} from "@aave/interfaces/IPool.sol";
 
 contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator {
-
     enum Network {
         ARBITRUM_GOERLI,
         AVALANCHE_FUJI,
@@ -29,15 +28,16 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator {
     address private pool; // pool address
 
     //CCIP
-    IRouterClient router;
-    LinkTokenInterface linkToken;
+    address private receiver;
+    IRouterClient private router;
+    LinkTokenInterface private linkToken;
 
+    // The chain selector of the destination chain.
+    // The address of the receiver on the destination chain.
+    // The text being sent.
+    // the token address used to pay CCIP fees.
+    // The fees paid for sending the CCIP message.
     event MessageSent( // The unique ID of the CCIP message.
-        // The chain selector of the destination chain.
-        // The address of the receiver on the destination chain.
-        // The text being sent.
-        // the token address used to pay CCIP fees.
-        // The fees paid for sending the CCIP message.
         bytes32 indexed messageId,
         uint64 indexed destinationChainSelector,
         address receiver,
@@ -83,9 +83,48 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator {
         return heathFactor;
     }
 
-    function sendFunds(address _to, address _from, Network network) internal guard(_to, _from, network) {
-        //then request data
-        //lock the channel
+    function requestCollateral(
+        address _to,
+        address _from,
+        Network network,
+        uint64 destinationChainSelector,
+        string calldata text
+    ) external guard(_to, _from, network) returns (bytes32 messageId) {
+        Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
+            receiver: abi.encode(receiver), // ABI-encoded receiver address
+            data: abi.encode(text), // ABI-encoded string
+            tokenAmounts: new Client.EVMTokenAmount[](0), // Empty array indicating no tokens are being sent
+            extraArgs: Client._argsToBytes(
+                // Additional arguments, setting gas limit and non-strict sequencing mode
+                Client.EVMExtraArgsV1({gasLimit: 200_000})
+            ),
+            // Set the feeToken  address, indicating LINK will be used for fees
+            feeToken: address(linkToken)
+        });
+
+        uint256 fees = router.getFee(destinationChainSelector, evm2AnyMessage);
+
+        if (fees > linkToken.balanceOf(address(this)))
+            revert NotEnoughBalance(linkToken.balanceOf(address(this)), fees);
+
+        // approve the Router to transfer LINK tokens on contract's behalf. It will spend the fees in LINK
+        linkToken.approve(address(router), fees);
+
+        // Send the message through the router and store the returned message ID
+        messageId = router.ccipSend(destinationChainSelector, evm2AnyMessage);
+
+        // Emit an event with message details
+        emit MessageSent(
+            messageId,
+            destinationChainSelector,
+            receiver,
+            text,
+            address(linkToken),
+            fees
+        );
+
+        // Return the message ID
+        return messageId;
     }
 
     function receiveFunds() internal {
