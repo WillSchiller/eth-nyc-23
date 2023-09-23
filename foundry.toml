@@ -9,9 +9,9 @@ remappings = [
     '@safe-global/safe-core-protocol=lib/safe-core-protocol', 
     '@safe-contracts=lib/safe-contracts',
     '@openzeppelin=lib/openzeppelin-contracts',
-    '@gelatonetwork/relay-context/contracts=lib/relay-context-contracts/contracts',
     '@foundry-devops=lib/foundry-devops',
     '@aave=lib/aave-v3-core/contracts',
+    '@chainlink/contracts-ccip=lib/ccip/contracts'
     
     ]
 
