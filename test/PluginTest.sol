@@ -17,8 +17,6 @@ import {SafeTxConfig} from "../script/utils/SafeTxConfig.s.sol";
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import {ISafeProtocolManager} from "@safe/interfaces/Manager.sol";
 
-
-
 /**
  * @title Foundry Test Setup for Safe Plugin
  * @author @willschiller
@@ -33,7 +31,6 @@ import {ISafeProtocolManager} from "@safe/interfaces/Manager.sol";
  */
 
 contract PluginTest is Test {
-
     address private constant ARBITRUM_GOERLI_ROUTER = 0x88E492127709447A5ABEFdaB8788a15B4567589E;
     address private constant ARBITRUM_GOERLI_LINK = 0xB7C5a28bE43543eccE023A63d69b88d441cB6a28;
     address private constant ARBITRUM_GOERLI_AAVE_POOL = 0xccEa5C65f6d4F465B71501418b88FBe4e7071283;
@@ -57,54 +54,41 @@ contract PluginTest is Test {
 
     error SafeTxFailure(bytes reason);
 
-    function getTransactionHash(
-        address _to,
-        bytes memory _data
-    ) public view returns (bytes32) {
-        return
-            safe.getTransactionHash(
-                _to,
-                config.value,
-                _data,
-                config.operation,
-                config.safeTxGas,
-                config.baseGas,
-                config.gasPrice,
-                config.gasToken,
-                config.refundReceiver,
-                safe.nonce()
-            );
+    function getTransactionHash(address _to, bytes memory _data) public view returns (bytes32) {
+        return safe.getTransactionHash(
+            _to,
+            config.value,
+            _data,
+            config.operation,
+            config.safeTxGas,
+            config.baseGas,
+            config.gasPrice,
+            config.gasToken,
+            config.refundReceiver,
+            safe.nonce()
+        );
     }
 
-    function sendSafeTx(
-        address _to,
-        bytes memory _data,
-        bytes memory sig
-    ) public {
-        try
-            safe.execTransaction(
-                _to,
-                config.value,
-                _data,
-                config.operation,
-                config.safeTxGas,
-                config.baseGas,
-                config.gasPrice,
-                config.gasToken,
-                config.refundReceiver,
-                sig //sig
-            )
-        {} catch (bytes memory reason) {
+    function sendSafeTx(address _to, bytes memory _data, bytes memory sig) public {
+        try safe.execTransaction(
+            _to,
+            config.value,
+            _data,
+            config.operation,
+            config.safeTxGas,
+            config.baseGas,
+            config.gasPrice,
+            config.gasToken,
+            config.refundReceiver,
+            sig //sig
+        ) {} catch (bytes memory reason) {
             revert SafeTxFailure(reason);
         }
     }
 
     function setUp() public {
         vm.startPrank(owner);
-        IRouterClient[2] memory routers = [
-            IRouterClient(ARBITRUM_GOERLI_ROUTER),
-            IRouterClient(POLYGON_MUMBAI_ROUTER)
-        ];
+        IRouterClient[2] memory routers = [IRouterClient(ARBITRUM_GOERLI_ROUTER), IRouterClient(POLYGON_MUMBAI_ROUTER)];
         vm.selectFork(vm.createFork(vm.envString("ARBITRUM_GOERLI_RPC")));
         vm.deal(owner, 10 ether);
         arbitrumRegistry = new SafeProtocolRegistry(owner);
@@ -114,21 +98,18 @@ contract PluginTest is Test {
         vm.deal(owner, 10 ether);
         polyRegistry = new SafeProtocolRegistry(owner);
         polyManager = new SafeProtocolManager(owner, address(polyRegistry));
-        ISafeProtocolManager[2] memory _managers = [ISafeProtocolManager(arbitrumManager), ISafeProtocolManager(polyManager)];
+        ISafeProtocolManager[2] memory _managers =
+            [ISafeProtocolManager(arbitrumManager), ISafeProtocolManager(polyManager)];
 
-        polyPlugin = new Plugin(POLYGON_MUMBAI_ROUTER, POLYGON_MUMBAI_LINK, routers, _managers, Plugin.Network.POLYGON_MUMBAI);
+        polyPlugin =
+            new Plugin(POLYGON_MUMBAI_ROUTER, POLYGON_MUMBAI_LINK, routers, _managers, Plugin.Network.POLYGON_MUMBAI);
 
         safe = makeSafe();
         polyRegistry.addIntegration(address(polyPlugin), Enum.IntegrationType.Plugin);
 
-        bytes32 txHash = getTransactionHash(
-            address(safe),
-            abi.encodeWithSignature("enableModule(address)", address(polyManager))
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
-            vm.envUint("SAFE_OWNER_PRIVATE_KEY"),
-            txHash
-        );
+        bytes32 txHash =
+            getTransactionHash(address(safe), abi.encodeWithSignature("enableModule(address)", address(polyManager)));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(vm.envUint("SAFE_OWNER_PRIVATE_KEY"), txHash);
         sendSafeTx(
             address(safe),
             abi.encodeWithSignature("enableModule(address)", address(polyManager)),
@@ -136,47 +117,32 @@ contract PluginTest is Test {
         );
 
         txHash = getTransactionHash(
-            address(polyManager),
-            abi.encodeWithSignature(
-                "enablePlugin(address,bool)",
-                address(polyPlugin),
-                false
-            )
+            address(polyManager), abi.encodeWithSignature("enablePlugin(address,bool)", address(polyPlugin), false)
         );
         (v, r, s) = vm.sign(vm.envUint("SAFE_OWNER_PRIVATE_KEY"), txHash);
         sendSafeTx(
             address(polyManager),
-            abi.encodeWithSignature(
-                "enablePlugin(address,bool)",
-                address(polyPlugin),
-                false
-            ),
+            abi.encodeWithSignature("enablePlugin(address,bool)", address(polyPlugin), false),
             abi.encodePacked(r, s, v)
         );
-        polyPlugin.setWhitelistedRecipient(address(polyPlugin), address(arbitrumPlugin), Plugin.Network.POLYGON_MUMBAI, true);
-        polyPlugin.setWhitelistedRecipient(address(arbitrumPlugin), address(polyPlugin), Plugin.Network.POLYGON_MUMBAI, true);
+        polyPlugin.setWhitelistedRecipient(
+            address(polyPlugin), address(arbitrumPlugin), Plugin.Network.POLYGON_MUMBAI, true
+        );
+        polyPlugin.setWhitelistedRecipient(
+            address(arbitrumPlugin), address(polyPlugin), Plugin.Network.POLYGON_MUMBAI, true
+        );
         vm.stopPrank();
     }
 
-    function makeSafe() public returns (Safe){
+    function makeSafe() public returns (Safe) {
         singleton = new Safe();
         proxy = new SafeProxy(address(singleton));
         handler = new TokenCallbackHandler();
         safe = Safe(payable(address(proxy)));
         address[] memory owners = new address[](1);
         owners[0] = owner;
-        safe.setup(
-            owners,
-            1,
-            address(0),
-            bytes(""),
-            address(handler),
-            address(0),
-            0,
-            payable(address(owner))
-        );
+        safe.setup(owners, 1, address(0), bytes(""), address(handler), address(0), 0, payable(address(owner)));
         return safe;
-
     }
 
     function testisPluginEnabled() public {
@@ -185,7 +151,7 @@ contract PluginTest is Test {
     }
 
     function testRequestFunds() public {
-       /* polyPlugin.requestCollateral( 
+        /* polyPlugin.requestCollateral( 
             _to,
             _from,
             Network network,
@@ -193,7 +159,4 @@ contract PluginTest is Test {
             uint256 _amount
         ); */
     }
-
-        
-    
 }

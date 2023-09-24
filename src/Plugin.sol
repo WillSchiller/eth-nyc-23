@@ -20,9 +20,9 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     }
 
     bool private isPool; // true is pool false is child
-    mapping(bytes32 RouteKey => bool) private threadLocked;
     mapping(address from => mapping(Network network => mapping(address to => bool isWhitelisted))) private
         whitelistedRecipient; //should be gas optimised
+    mapping(bytes32 RouteKey => bool) private threadLocked;
     address private aavePool; // pool address
 
     //CCIP
@@ -146,6 +146,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         // Emit an event with message details
         emit MessageSent(messageId, destinationChainSelector, receiver, _to, _from, _amount, address(linkToken), fees);
 
+        threadLocked[getRouteKey(_to, _from, network)] = true;
         // Return the message ID
         return messageId;
     }
@@ -180,6 +181,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         catch (bytes memory reason) {
             revert FeePaymentFailure(reason);
         }
+        threadLocked[getRouteKey(to, from, thisNetwork)] = false;
     }
 
     function postCollateralToAave() external {
