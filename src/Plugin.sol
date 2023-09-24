@@ -21,7 +21,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         POLYGON_MUMBAI
     }
 
-    mapping(bytes32 RouteKey => SafeInstance) private threadLocked;
+    mapping(bytes32 RouteKey => bool) private threadLocked;
     bool private isPool; // true is pool false is child
     mapping(address from => mapping(Network network => mapping(address to => bool isWhitelisted))) private
         whitelistedRecipient; //should be gas optimised
@@ -163,5 +163,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         }
     }
 
-    function postCollateral() external {}
+    function postCollateralToAave() external {
+        //TODO 
+    }
 }
