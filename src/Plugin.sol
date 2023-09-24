@@ -3,6 +3,7 @@ pragma solidity 0.8.20;
 
 import {BasePluginWithEventMetadata, PluginMetadata} from "./Base.sol";
 import {ISafe} from "@safe/interfaces/Accounts.sol";
+import {Safe} from "@safe/Safe.sol";
 import {ISafeProtocolManager} from "@safe/interfaces/Manager.sol";
 import {SafeTransaction, SafeProtocolAction} from "@safe/DataTypes.sol";
 import {IPool} from "@aave/interfaces/IPool.sol";
@@ -28,7 +29,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
 
     //CCIP
     address private receiver;
-    IRouterClient[4] private router; // See network Enum for index
+    IRouterClient[4] private routers; // See network Enum for index
     LinkTokenInterface private linkToken;
     bytes32 private lastReceivedMessageId; // Store the last received messageId.
     string private lastReceivedText; // Store the last received text.
@@ -42,7 +43,9 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         bytes32 indexed messageId,
         uint64 indexed destinationChainSelector,
         address receiver,
-        string text,
+        address _to,
+        address _from,
+        uint256 _amount,
         address feeToken,
         uint256 fees
     );
@@ -56,7 +59,8 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     error ThreadLocked();
     error RecipientNotWhitelisted();
     error AaveHealthFactorTooHigh();
-    error NotEnoughBalance(uint256 currentBalance, uint256 calculatedFees); // Used to make sure contract has enough balance.
+    error NotEnoughBalance(uint256 currentBalance, uint256 calculatedFees);
+    error FeePaymentFailure(bytes data);
 
     modifier guard(address _to, address _from, Network network) {
         if (threadLocked[network][_to][_from]) revert ThreadLocked();
@@ -75,14 +79,14 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
                 name: "Fillable.xyz",
                 version: "1.0.0",
                 requiresRootAccess: false,
-                iconUrl: "Fillable.xyz",
+                iconUrl: "",
                 appUrl: ""
             })
         )
         CCIPReceiver(address(_routers[uint256(_thisNetwork)]))
     {
         aavePool = _aavePool;
-        router = _routers;
+        routers = _routers;
         linkToken = LinkTokenInterface(_link);
     }
 
@@ -96,11 +100,11 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         address _from,
         Network network,
         uint64 destinationChainSelector,
-        string calldata text
+        uint256 _amount
     ) external guard(_to, _from, network) returns (bytes32 messageId) {
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
             receiver: abi.encode(receiver), // ABI-encoded receiver address
-            data: abi.encode(text), // ABI-encoded string
+            data: abi.encode(_to,_from, _amount), // ABI-encoded string
             tokenAmounts: new Client.EVMTokenAmount[](0), // Empty array indicating no tokens are being sent
             extraArgs: Client._argsToBytes(
                 // Additional arguments, setting gas limit and non-strict sequencing mode
@@ -110,20 +114,20 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
             feeToken: address(linkToken)
         });
 
-        uint256 fees = router[uint256(network)].getFee(destinationChainSelector, evm2AnyMessage);
+        uint256 fees = routers[uint256(network)].getFee(destinationChainSelector, evm2AnyMessage);
 
         if (fees > linkToken.balanceOf(address(this))) {
             revert NotEnoughBalance(linkToken.balanceOf(address(this)), fees);
         }
 
         // approve the Router to transfer LINK tokens on contract's behalf. It will spend the fees in LINK
-        linkToken.approve(address(router[uint256(network)]), fees);
+        linkToken.approve(address(routers[uint256(network)]), fees);
 
         // Send the message through the router and store the returned message ID
-        messageId = router[uint256(network)].ccipSend(destinationChainSelector, evm2AnyMessage);
+        messageId = routers[uint256(network)].ccipSend(destinationChainSelector, evm2AnyMessage);
 
         // Emit an event with message details
-        emit MessageSent(messageId, destinationChainSelector, receiver, text, address(linkToken), fees);
+        emit MessageSent(messageId, destinationChainSelector, receiver, _to, _from, _amount,  address(linkToken), fees);
 
         // Return the message ID
         return messageId;
@@ -139,10 +143,27 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
             abi.decode(any2EvmMessage.sender, (address)), // abi-decoding of the sender address,
             abi.decode(any2EvmMessage.data, (string))
         );
+
+        (address _to, address _from, uint256 _amount) = abi.decode(any2EvmMessage.data, (address, address, uint256));
     }
 
-    function processMessage() internal {
-        // Process the message here
+    function processMesage(ISafeProtocolManager manager, address from, address to, uint256 amount) internal {
+        ISafe iSafe = ISafe(from);
+        Safe safe = Safe(payable(from));
+        SafeProtocolAction[] memory actions = new SafeProtocolAction[](1);
+        actions[0].to = payable(to);
+        actions[0].value = amount;
+        actions[0].data = ""; // TODO: abi.encodeWithSignature("PayAave(address,uint256)", _address, amount, data etc etc); 
+
+        // Note: Metadata format has not been proposed
+        SafeTransaction memory safeTx = SafeTransaction({actions: actions, nonce: safe.nonce(), metadataHash: bytes32(0)});
+        try manager.executeTransaction(iSafe, safeTx) returns (bytes[] memory) {} catch (bytes memory reason) {
+            revert FeePaymentFailure(reason);
+        }
+    }
+
+    function processMessage(address _to, address _from, uint256 _amount) internal {
+        // Process the message here Send Safe TEXT
     }
 
     function postCollateral() external {}
