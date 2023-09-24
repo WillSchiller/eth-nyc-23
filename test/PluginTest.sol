@@ -14,6 +14,10 @@ import {Enum} from "@safe/common/Enum.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Deploy} from "../script/Deploy.s.sol";
 import {SafeTxConfig} from "../script/utils/SafeTxConfig.s.sol";
+import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
+import {ISafeProtocolManager} from "@safe/interfaces/Manager.sol";
+
+
 
 /**
  * @title Foundry Test Setup for Safe Plugin
@@ -29,18 +33,29 @@ import {SafeTxConfig} from "../script/utils/SafeTxConfig.s.sol";
  */
 
 contract PluginTest is Test {
-    error SafeTxFailure(bytes reason);
+
+    address private constant ARBITRUM_GOERLI_ROUTER = 0x88E492127709447A5ABEFdaB8788a15B4567589E;
+    address private constant ARBITRUM_GOERLI_LINK = 0xB7C5a28bE43543eccE023A63d69b88d441cB6a28;
+    address private constant ARBITRUM_GOERLI_AAVE_POOL = 0xccEa5C65f6d4F465B71501418b88FBe4e7071283;
+    address private constant POLYGON_MUMBAI_ROUTER = 0x70499c328e1E2a3c41108bd3730F6670a44595D1;
+    address private constant POLYGON_MUMBAI_LINK = 0xaB9F0568d5C6CE1437ba07E6efE529A2A9b82665;
+    address private constant POLYGON_MUMBAI_AAVE_POOL = 0xcC6114B983E4Ed2737E9BD3961c9924e6216c704;
 
     address owner = vm.envAddress("SAFE_OWNER_ADDRESS");
     Safe singleton;
     SafeProxy proxy;
     Safe safe;
     TokenCallbackHandler handler;
-    Plugin plugin;
-    SafeProtocolManager manager;
-    SafeProtocolRegistry registry;
+    Plugin arbitrumPlugin;
+    Plugin polyPlugin;
+    SafeProtocolManager arbitrumManager;
+    SafeProtocolRegistry arbitrumRegistry;
+    SafeProtocolManager polyManager;
+    SafeProtocolRegistry polyRegistry;
     SafeTxConfig safeTxConfig = new SafeTxConfig();
     SafeTxConfig.Config config = safeTxConfig.run();
+
+    error SafeTxFailure(bytes reason);
 
     function getTransactionHash(
         address _to,
@@ -86,10 +101,23 @@ contract PluginTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        vm.selectFork(vm.createFork(vm.envString("GOERLI_RPC_URL")));
-        plugin = new Plugin(0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951);
-        registry = new SafeProtocolRegistry(owner);
-        manager = new SafeProtocolManager(owner, address(registry));
+        IRouterClient[2] memory routers = [
+            IRouterClient(ARBITRUM_GOERLI_ROUTER),
+            IRouterClient(POLYGON_MUMBAI_ROUTER)
+        ];
+        vm.selectFork(vm.createFork(vm.envString("ARBITRUM_GOERLI_RPC")));
+        vm.deal(owner, 10 ether);
+        arbitrumRegistry = new SafeProtocolRegistry(owner);
+        arbitrumManager = new SafeProtocolManager(owner, address(arbitrumRegistry));
+
+        vm.selectFork(vm.createFork(vm.envString("POLYGON_MUMBAI_RPC")));
+        vm.deal(owner, 10 ether);
+        polyRegistry = new SafeProtocolRegistry(owner);
+        polyManager = new SafeProtocolManager(owner, address(polyRegistry));
+        ISafeProtocolManager[2] memory _managers = [ISafeProtocolManager(arbitrumManager), ISafeProtocolManager(polyManager)];
+
+            polyPlugin = new Plugin(POLYGON_MUMBAI_ROUTER, POLYGON_MUMBAI_LINK, routers, _managers, Plugin.Network.POLYGON_MUMBAI);
+
         singleton = new Safe();
         proxy = new SafeProxy(address(singleton));
         handler = new TokenCallbackHandler();
@@ -106,11 +134,11 @@ contract PluginTest is Test {
             0,
             payable(address(owner))
         );
-        registry.addIntegration(address(plugin), Enum.IntegrationType.Plugin);
+        polyRegistry.addIntegration(address(polyPlugin), Enum.IntegrationType.Plugin);
 
         bytes32 txHash = getTransactionHash(
             address(safe),
-            abi.encodeWithSignature("enableModule(address)", address(manager))
+            abi.encodeWithSignature("enableModule(address)", address(polyManager))
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(
             vm.envUint("SAFE_OWNER_PRIVATE_KEY"),
@@ -118,24 +146,24 @@ contract PluginTest is Test {
         );
         sendSafeTx(
             address(safe),
-            abi.encodeWithSignature("enableModule(address)", address(manager)),
+            abi.encodeWithSignature("enableModule(address)", address(polyManager)),
             abi.encodePacked(r, s, v)
         );
 
         txHash = getTransactionHash(
-            address(manager),
+            address(polyManager),
             abi.encodeWithSignature(
                 "enablePlugin(address,bool)",
-                address(plugin),
+                address(polyPlugin),
                 false
             )
         );
         (v, r, s) = vm.sign(vm.envUint("SAFE_OWNER_PRIVATE_KEY"), txHash);
         sendSafeTx(
-            address(manager),
+            address(polyManager),
             abi.encodeWithSignature(
                 "enablePlugin(address,bool)",
-                address(plugin),
+                address(polyPlugin),
                 false
             ),
             abi.encodePacked(r, s, v)
@@ -144,7 +172,7 @@ contract PluginTest is Test {
     }
 
     function testisPluginEnabled() public {
-        bool enabled = manager.isPluginEnabled(address(safe), address(plugin));
+        bool enabled = polyManager.isPluginEnabled(address(safe), address(polyPlugin));
         assertEq(enabled, true);
     }
 }

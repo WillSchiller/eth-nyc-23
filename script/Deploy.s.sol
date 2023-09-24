@@ -62,6 +62,7 @@ contract Deploy is Script {
     }
 
     function run() public {
+        /* TODO
         vm.startBroadcast(vm.envUint("SAFE_OWNER_PRIVATE_KEY"));
         
         (Plugin plugin, SafeProtocolManager manager, SafeProtocolRegistry registry) = contracts.run(owner);
@@ -76,5 +77,6 @@ contract Deploy is Script {
         sendSafeTx(address(manager), abi.encodeWithSignature("enablePlugin(address,bool)", address(plugin), false), abi.encodePacked(r, s, v));
 
         vm.stopBroadcast();
+        */
     }
 }

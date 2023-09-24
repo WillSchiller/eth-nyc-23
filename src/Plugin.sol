@@ -16,8 +16,6 @@ import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications
 contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     enum Network {
         ARBITRUM_GOERLI,
-        AVALANCHE_FUJI,
-        BASE_GOERLI,
         POLYGON_MUMBAI
     }
 
@@ -29,7 +27,9 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
 
     //CCIP
     address private receiver;
-    IRouterClient[4] private routers; // See network Enum for index
+    Network private thisNetwork;
+    IRouterClient[2] private routers; // See network Enum for index
+    ISafeProtocolManager[2] private managers; // See network Enum for index
     LinkTokenInterface private linkToken;
     bytes32 private lastReceivedMessageId; // Store the last received messageId.
     string private lastReceivedText; // Store the last received text.
@@ -62,9 +62,9 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     error NotEnoughBalance(uint256 currentBalance, uint256 calculatedFees);
     error FeePaymentFailure(bytes data);
 
-    modifier guard(address _to, address _from, Network network) {
-        if (threadLocked(getRouteKey())) revert ThreadLocked();
-        if (!whitelistedRecipient[_from][network][_to]) {
+    modifier guard(address _to, address _from, Network _network) {
+        if (threadLocked[getRouteKey(_to, _from, _network)]) revert ThreadLocked();
+        if (!whitelistedRecipient[_from][_network][_to]) {
             revert RecipientNotWhitelisted();
         }
         if (getAaveUserHealth(_to) > 1100000000000000000) {
@@ -73,7 +73,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         _;
     }
 
-    constructor(address _aavePool, address _link, IRouterClient[4] memory _routers, Network _thisNetwork)
+    constructor(address _aavePool, address _link, IRouterClient[2] memory _routers, ISafeProtocolManager[2] memory _managers, Network _thisNetwork)
         BasePluginWithEventMetadata(
             PluginMetadata({name: "Fillable.xyz", version: "1.0.0", requiresRootAccess: false, iconUrl: "", appUrl: ""})
         )
@@ -81,11 +81,13 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     {
         aavePool = _aavePool;
         routers = _routers;
+        managers = _managers;
         linkToken = LinkTokenInterface(_link);
+        thisNetwork = _thisNetwork;
     }
 
     function getRouteKey(address _to, address _from, Network _network) internal pure returns (bytes32) {
-        return keccak256(abi.encode(address, address, uint256(_network)));
+        return keccak256(abi.encode(_to, _from, uint256(_network)));
     }
 
     function getAaveUserHealth(address userAddress) public view returns (uint256) {
@@ -146,7 +148,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         processMessage(_to, _from, _amount);
     }
 
-    function processMesage(address from, address to, uint256 amount) internal {
+    function processMessage(address from, address to, uint256 amount) internal {
         ISafe iSafe = ISafe(from);
         Safe safe = Safe(payable(from));
         SafeProtocolAction[] memory actions = new SafeProtocolAction[](1);
@@ -157,7 +159,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         // Note: Metadata format has not been proposed
         SafeTransaction memory safeTx =
             SafeTransaction({actions: actions, nonce: safe.nonce(), metadataHash: bytes32(0)});
-        try ISafeProtocolManager(safe, manager()).executeTransaction(iSafe, safeTx) returns (bytes[] memory) {}
+        try managers[uint256(thisNetwork)].executeTransaction(iSafe, safeTx) returns (bytes[] memory) {}
         catch (bytes memory reason) {
             revert FeePaymentFailure(reason);
         }
