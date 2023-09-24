@@ -116,24 +116,9 @@ contract PluginTest is Test {
         polyManager = new SafeProtocolManager(owner, address(polyRegistry));
         ISafeProtocolManager[2] memory _managers = [ISafeProtocolManager(arbitrumManager), ISafeProtocolManager(polyManager)];
 
-            polyPlugin = new Plugin(POLYGON_MUMBAI_ROUTER, POLYGON_MUMBAI_LINK, routers, _managers, Plugin.Network.POLYGON_MUMBAI);
+        polyPlugin = new Plugin(POLYGON_MUMBAI_ROUTER, POLYGON_MUMBAI_LINK, routers, _managers, Plugin.Network.POLYGON_MUMBAI);
 
-        singleton = new Safe();
-        proxy = new SafeProxy(address(singleton));
-        handler = new TokenCallbackHandler();
-        safe = Safe(payable(address(proxy)));
-        address[] memory owners = new address[](1);
-        owners[0] = owner;
-        safe.setup(
-            owners,
-            1,
-            address(0),
-            bytes(""),
-            address(handler),
-            address(0),
-            0,
-            payable(address(owner))
-        );
+        safe = makeSafe();
         polyRegistry.addIntegration(address(polyPlugin), Enum.IntegrationType.Plugin);
 
         bytes32 txHash = getTransactionHash(
@@ -168,11 +153,47 @@ contract PluginTest is Test {
             ),
             abi.encodePacked(r, s, v)
         );
+        polyPlugin.setWhitelistedRecipient(address(polyPlugin), address(arbitrumPlugin), Plugin.Network.POLYGON_MUMBAI, true);
+        polyPlugin.setWhitelistedRecipient(address(arbitrumPlugin), address(polyPlugin), Plugin.Network.POLYGON_MUMBAI, true);
         vm.stopPrank();
     }
 
-    function testisPluginEnabled() public {
-        bool enabled = polyManager.isPluginEnabled(address(safe), address(polyPlugin));
-        assertEq(enabled, true);
+    function makeSafe() public returns (Safe){
+        singleton = new Safe();
+        proxy = new SafeProxy(address(singleton));
+        handler = new TokenCallbackHandler();
+        safe = Safe(payable(address(proxy)));
+        address[] memory owners = new address[](1);
+        owners[0] = owner;
+        safe.setup(
+            owners,
+            1,
+            address(0),
+            bytes(""),
+            address(handler),
+            address(0),
+            0,
+            payable(address(owner))
+        );
+        return safe;
+
     }
+
+    function testisPluginEnabled() public {
+        assertEq(true, polyManager.isPluginEnabled(address(safe), address(polyPlugin)));
+        assertEq(true, arbitrumManager.isPluginEnabled(address(safe), address(polyPlugin)));
+    }
+
+    function testRequestFunds() public {
+       /* polyPlugin.requestCollateral( 
+            _to,
+            _from,
+            Network network,
+            uint64 destinationChainSelector,
+            uint256 _amount
+        ); */
+    }
+
+        
+    
 }

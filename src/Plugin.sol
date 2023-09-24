@@ -19,8 +19,8 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         POLYGON_MUMBAI
     }
 
-    mapping(bytes32 RouteKey => bool) private threadLocked;
     bool private isPool; // true is pool false is child
+    mapping(bytes32 RouteKey => bool) private threadLocked;
     mapping(address from => mapping(Network network => mapping(address to => bool isWhitelisted))) private
         whitelistedRecipient; //should be gas optimised
     address private aavePool; // pool address
@@ -56,6 +56,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         // The text that was received.
     bytes32 indexed messageId, uint64 indexed sourceChainSelector, address sender, string text);
 
+    error NotPool();
     error ThreadLocked();
     error RecipientNotWhitelisted();
     error AaveHealthFactorTooHigh();
@@ -63,6 +64,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     error FeePaymentFailure(bytes data);
 
     modifier guard(address _to, address _from, Network _network) {
+        if (!isPool) revert NotPool();
         if (threadLocked[getRouteKey(_to, _from, _network)]) revert ThreadLocked();
         if (!whitelistedRecipient[_from][_network][_to]) {
             revert RecipientNotWhitelisted();
@@ -73,12 +75,19 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         _;
     }
 
-    constructor(address _aavePool, address _link, IRouterClient[2] memory _routers, ISafeProtocolManager[2] memory _managers, Network _thisNetwork)
+    constructor(
+        address _aavePool,
+        address _link,
+        IRouterClient[2] memory _routers,
+        ISafeProtocolManager[2] memory _managers,
+        Network _thisNetwork
+    )
         BasePluginWithEventMetadata(
             PluginMetadata({name: "Fillable.xyz", version: "1.0.0", requiresRootAccess: false, iconUrl: "", appUrl: ""})
         )
         CCIPReceiver(address(_routers[uint256(_thisNetwork)]))
     {
+        isPool = true;
         aavePool = _aavePool;
         routers = _routers;
         managers = _managers;
@@ -93,6 +102,14 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     function getAaveUserHealth(address userAddress) public view returns (uint256) {
         (,,,,, uint256 heathFactor) = IPool(aavePool).getUserAccountData(userAddress);
         return heathFactor;
+    }
+
+    function setWhitelistedRecipient(address _to, address _from, Network _network, bool _isWhitelisted)
+        external
+        onlyOwner
+    {
+        whitelistedRecipient[_from][_network][_to] = _isWhitelisted;
+        whitelistedRecipient[_to][_network][_from] = _isWhitelisted;
     }
 
     function requestCollateral(
@@ -166,6 +183,6 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     }
 
     function postCollateralToAave() external {
-        //TODO 
+        //TODO
     }
 }
