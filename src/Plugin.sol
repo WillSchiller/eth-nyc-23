@@ -21,8 +21,8 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         POLYGON_MUMBAI
     }
 
+    mapping(bytes32 RouteKey => SafeInstance) private threadLocked;
     bool private isPool; // true is pool false is child
-    mapping(Network network => mapping(address to => mapping(address from => bool locked))) threadLocked; // Prevent duplication
     mapping(address from => mapping(Network network => mapping(address to => bool isWhitelisted))) private
         whitelistedRecipient; //should be gas optimised
     address private aavePool; // pool address
@@ -63,7 +63,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     error FeePaymentFailure(bytes data);
 
     modifier guard(address _to, address _from, Network network) {
-        if (threadLocked[network][_to][_from]) revert ThreadLocked();
+        if (threadLocked(getRouteKey())) revert ThreadLocked();
         if (!whitelistedRecipient[_from][network][_to]) {
             revert RecipientNotWhitelisted();
         }
@@ -75,19 +75,17 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
 
     constructor(address _aavePool, address _link, IRouterClient[4] memory _routers, Network _thisNetwork)
         BasePluginWithEventMetadata(
-            PluginMetadata({
-                name: "Fillable.xyz",
-                version: "1.0.0",
-                requiresRootAccess: false,
-                iconUrl: "",
-                appUrl: ""
-            })
+            PluginMetadata({name: "Fillable.xyz", version: "1.0.0", requiresRootAccess: false, iconUrl: "", appUrl: ""})
         )
         CCIPReceiver(address(_routers[uint256(_thisNetwork)]))
     {
         aavePool = _aavePool;
         routers = _routers;
         linkToken = LinkTokenInterface(_link);
+    }
+
+    function getRouteKey(address _to, address _from, Network _network) internal pure returns (bytes32) {
+        return keccak256(abi.encode(address, address, uint256(_network)));
     }
 
     function getAaveUserHealth(address userAddress) public view returns (uint256) {
@@ -104,7 +102,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     ) external guard(_to, _from, network) returns (bytes32 messageId) {
         Client.EVM2AnyMessage memory evm2AnyMessage = Client.EVM2AnyMessage({
             receiver: abi.encode(receiver), // ABI-encoded receiver address
-            data: abi.encode(_to,_from, _amount), // ABI-encoded string
+            data: abi.encode(_to, _from, _amount), // ABI-encoded string
             tokenAmounts: new Client.EVMTokenAmount[](0), // Empty array indicating no tokens are being sent
             extraArgs: Client._argsToBytes(
                 // Additional arguments, setting gas limit and non-strict sequencing mode
@@ -127,7 +125,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         messageId = routers[uint256(network)].ccipSend(destinationChainSelector, evm2AnyMessage);
 
         // Emit an event with message details
-        emit MessageSent(messageId, destinationChainSelector, receiver, _to, _from, _amount,  address(linkToken), fees);
+        emit MessageSent(messageId, destinationChainSelector, receiver, _to, _from, _amount, address(linkToken), fees);
 
         // Return the message ID
         return messageId;
@@ -145,25 +143,24 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         );
 
         (address _to, address _from, uint256 _amount) = abi.decode(any2EvmMessage.data, (address, address, uint256));
+        processMessage(_to, _from, _amount);
     }
 
-    function processMesage(ISafeProtocolManager manager, address from, address to, uint256 amount) internal {
+    function processMesage(address from, address to, uint256 amount) internal {
         ISafe iSafe = ISafe(from);
         Safe safe = Safe(payable(from));
         SafeProtocolAction[] memory actions = new SafeProtocolAction[](1);
         actions[0].to = payable(to);
         actions[0].value = amount;
-        actions[0].data = ""; // TODO: abi.encodeWithSignature("PayAave(address,uint256)", _address, amount, data etc etc); 
+        actions[0].data = ""; // TODO: abi.encodeWithSignature("PayAave(address,uint256)", _address, amount, data etc etc);
 
         // Note: Metadata format has not been proposed
-        SafeTransaction memory safeTx = SafeTransaction({actions: actions, nonce: safe.nonce(), metadataHash: bytes32(0)});
-        try manager.executeTransaction(iSafe, safeTx) returns (bytes[] memory) {} catch (bytes memory reason) {
+        SafeTransaction memory safeTx =
+            SafeTransaction({actions: actions, nonce: safe.nonce(), metadataHash: bytes32(0)});
+        try ISafeProtocolManager(safe, manager()).executeTransaction(iSafe, safeTx) returns (bytes[] memory) {}
+        catch (bytes memory reason) {
             revert FeePaymentFailure(reason);
         }
-    }
-
-    function processMessage(address _to, address _from, uint256 _amount) internal {
-        // Process the message here Send Safe TEXT
     }
 
     function postCollateral() external {}
