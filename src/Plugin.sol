@@ -47,12 +47,11 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         uint256 fees
     );
 
-    event MessageReceived(
-        bytes32 indexed messageId, // The unique ID of the message.
-        uint64 indexed sourceChainSelector, // The chain selector of the source chain.
-        address sender, // The address of the sender from the source chain.
-        string text // The text that was received.
-    );
+    event MessageReceived( // The unique ID of the message.
+        // The chain selector of the source chain.
+        // The address of the sender from the source chain.
+        // The text that was received.
+    bytes32 indexed messageId, uint64 indexed sourceChainSelector, address sender, string text);
 
     error ThreadLocked();
     error RecipientNotWhitelisted();
@@ -70,7 +69,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         _;
     }
 
-    constructor(address _aavePool, address _link,  IRouterClient[4] memory _routers, Network _thisNetwork)
+    constructor(address _aavePool, address _link, IRouterClient[4] memory _routers, Network _thisNetwork)
         BasePluginWithEventMetadata(
             PluginMetadata({
                 name: "Fillable.xyz",
@@ -80,8 +79,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
                 appUrl: ""
             })
         )
-    CCIPReceiver(address(_routers(uint256([_thisNetwork])))
-
+        CCIPReceiver(address(_routers[uint256(_thisNetwork)]))
     {
         aavePool = _aavePool;
         router = _routers;
@@ -107,15 +105,16 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
             extraArgs: Client._argsToBytes(
                 // Additional arguments, setting gas limit and non-strict sequencing mode
                 Client.EVMExtraArgsV1({gasLimit: 200_000})
-            ),
+                ),
             // Set the feeToken  address, indicating LINK will be used for fees
             feeToken: address(linkToken)
         });
 
         uint256 fees = router[uint256(network)].getFee(destinationChainSelector, evm2AnyMessage);
 
-        if (fees > linkToken.balanceOf(address(this)))
+        if (fees > linkToken.balanceOf(address(this))) {
             revert NotEnoughBalance(linkToken.balanceOf(address(this)), fees);
+        }
 
         // approve the Router to transfer LINK tokens on contract's behalf. It will spend the fees in LINK
         linkToken.approve(address(router[uint256(network)]), fees);
@@ -124,39 +123,27 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         messageId = router[uint256(network)].ccipSend(destinationChainSelector, evm2AnyMessage);
 
         // Emit an event with message details
-        emit MessageSent(
-            messageId,
-            destinationChainSelector,
-            receiver,
-            text,
-            address(linkToken),
-            fees
-        );
+        emit MessageSent(messageId, destinationChainSelector, receiver, text, address(linkToken), fees);
 
         // Return the message ID
         return messageId;
     }
 
-    function _ccipReceive(
-            Client.Any2EVMMessage memory any2EvmMessage
-        ) internal override {
-            lastReceivedMessageId = any2EvmMessage.messageId; // fetch the messageId
-            lastReceivedText = abi.decode(any2EvmMessage.data, (string)); // abi-decoding of the sent text
+    function _ccipReceive(Client.Any2EVMMessage memory any2EvmMessage) internal override {
+        lastReceivedMessageId = any2EvmMessage.messageId; // fetch the messageId
+        lastReceivedText = abi.decode(any2EvmMessage.data, (string)); // abi-decoding of the sent text
 
-            emit MessageReceived(
-                any2EvmMessage.messageId,
-                any2EvmMessage.sourceChainSelector, // fetch the source chain identifier (aka selector)
-                abi.decode(any2EvmMessage.sender, (address)), // abi-decoding of the sender address,
-                abi.decode(any2EvmMessage.data, (string))
-            );
-        }
-    
+        emit MessageReceived(
+            any2EvmMessage.messageId,
+            any2EvmMessage.sourceChainSelector, // fetch the source chain identifier (aka selector)
+            abi.decode(any2EvmMessage.sender, (address)), // abi-decoding of the sender address,
+            abi.decode(any2EvmMessage.data, (string))
+        );
+    }
+
     function processMessage() internal {
         // Process the message here
     }
 
-    function postCollateral() external {
-
-    }
-        
+    function postCollateral() external {}
 }
