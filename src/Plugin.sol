@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.20;
 
-//CCIP
-import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
-import {OwnerIsCreator} from "@chainlink/contracts-ccip/src/v0.8/shared/access/OwnerIsCreator.sol";
-import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
-import {LinkTokenInterface} from "@chainlink/contracts-ccip/src/v0.8/shared/interfaces/LinkTokenInterface.sol";
-import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
-//SAFE
 import {BasePluginWithEventMetadata, PluginMetadata} from "./Base.sol";
 import {ISafe} from "@safe/interfaces/Accounts.sol";
 import {ISafeProtocolManager} from "@safe/interfaces/Manager.sol";
 import {SafeTransaction, SafeProtocolAction} from "@safe/DataTypes.sol";
 import {IPool} from "@aave/interfaces/IPool.sol";
+import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
+import {OwnerIsCreator} from "@chainlink/contracts-ccip/src/v0.8/shared/access/OwnerIsCreator.sol";
+import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
+import {LinkTokenInterface} from "@chainlink/contracts-ccip/src/v0.8/shared/interfaces/LinkTokenInterface.sol";
+import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 
 contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     enum Network {
@@ -26,12 +24,14 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
     mapping(Network network => mapping(address to => mapping(address from => bool locked))) threadLocked; // Prevent duplication
     mapping(address from => mapping(Network network => mapping(address to => bool isWhitelisted))) private
         whitelistedRecipient; //should be gas optimised
-    address private pool; // pool address
+    address private aavePool; // pool address
 
     //CCIP
     address private receiver;
     IRouterClient[4] private router; // See network Enum for index
     LinkTokenInterface private linkToken;
+    bytes32 private lastReceivedMessageId; // Store the last received messageId.
+    string private lastReceivedText; // Store the last received text.
 
     // The chain selector of the destination chain.
     // The address of the receiver on the destination chain.
@@ -45,6 +45,13 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         string text,
         address feeToken,
         uint256 fees
+    );
+
+    event MessageReceived(
+        bytes32 indexed messageId, // The unique ID of the message.
+        uint64 indexed sourceChainSelector, // The chain selector of the source chain.
+        address sender, // The address of the sender from the source chain.
+        string text // The text that was received.
     );
 
     error ThreadLocked();
@@ -63,7 +70,7 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         _;
     }
 
-    constructor(address _pool, address _router, address _link,  IRouterClient[4] memory _routers)
+    constructor(address _aavePool, address _link,  IRouterClient[4] memory _routers, Network _thisNetwork)
         BasePluginWithEventMetadata(
             PluginMetadata({
                 name: "Fillable.xyz",
@@ -73,16 +80,16 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
                 appUrl: ""
             })
         )
-    CCIPReceiver(_router)
+    CCIPReceiver(address(_routers(uint256([_thisNetwork])))
 
     {
-        pool = _pool;
+        aavePool = _aavePool;
         router = _routers;
         linkToken = LinkTokenInterface(_link);
     }
 
     function getAaveUserHealth(address userAddress) public view returns (uint256) {
-        (,,,,, uint256 heathFactor) = IPool(pool).getUserAccountData(userAddress);
+        (,,,,, uint256 heathFactor) = IPool(aavePool).getUserAccountData(userAddress);
         return heathFactor;
     }
 
@@ -130,7 +137,26 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         return messageId;
     }
 
-    function receiveFunds() internal {
-        // on return of msg post to aave
+    function _ccipReceive(
+            Client.Any2EVMMessage memory any2EvmMessage
+        ) internal override {
+            lastReceivedMessageId = any2EvmMessage.messageId; // fetch the messageId
+            lastReceivedText = abi.decode(any2EvmMessage.data, (string)); // abi-decoding of the sent text
+
+            emit MessageReceived(
+                any2EvmMessage.messageId,
+                any2EvmMessage.sourceChainSelector, // fetch the source chain identifier (aka selector)
+                abi.decode(any2EvmMessage.sender, (address)), // abi-decoding of the sender address,
+                abi.decode(any2EvmMessage.data, (string))
+            );
+        }
+    
+    function processMessage() internal {
+        // Process the message here
     }
+
+    function postCollateral() external {
+
+    }
+        
 }
