@@ -170,9 +170,9 @@ contract Plugin is BasePluginWithEventMetadata, OwnerIsCreator, CCIPReceiver {
         ISafe iSafe = ISafe(from);
         Safe safe = Safe(payable(from));
         SafeProtocolAction[] memory actions = new SafeProtocolAction[](1);
-        actions[0].to = payable(to);
+        actions[0].to = payable(to); // Should be to this contract. TODO
         actions[0].value = amount;
-        actions[0].data = ""; // TODO: abi.encodeWithSignature("PayAave(address,uint256)", _address, amount, data etc etc);
+        actions[0].data = "";
 
         // Note: Metadata format has not been proposed
         SafeTransaction memory safeTx =
